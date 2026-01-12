@@ -287,12 +287,7 @@ app.post('/api/admin/match/distribute', verifyToken, async (req, res) => {
     } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
-// VERCEL SPECIFIC STARTUP
-// app.listen mat use karo agar Vercel par api folder me hai
-if (process.env.NODE_ENV !== 'production') {
-    app.listen(PORT, () => console.log(`Server running on ${PORT}`));
-}
-
+// ---- HEALTH CHECK (ROOT) ----
 app.get('/', (req, res) => {
   res.json({
     status: 'OK',
@@ -300,4 +295,12 @@ app.get('/', (req, res) => {
   });
 });
 
+// ---- LOCAL DEV ONLY ----
+if (process.env.NODE_ENV !== 'production') {
+  app.listen(PORT, () => {
+    console.log(`Server running on ${PORT}`);
+  });
+}
+
+// ---- EXPORT FOR VERCEL ----
 module.exports = app;
