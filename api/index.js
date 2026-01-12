@@ -293,4 +293,11 @@ if (process.env.NODE_ENV !== 'production') {
     app.listen(PORT, () => console.log(`Server running on ${PORT}`));
 }
 
+app.get('/', (req, res) => {
+  res.json({
+    status: 'OK',
+    message: 'Esports API running'
+  });
+});
+
 module.exports = app;
