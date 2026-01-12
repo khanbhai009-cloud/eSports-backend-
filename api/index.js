@@ -42,7 +42,7 @@ app.use(express.json({
 
 // --- TEST ROUTE (GET Error hatane ke liye) ---
 app.get('/api', (req, res) => {
-    res.send("Backend is Running! Use POST for actions.");
+    res.send("Backend is Running! Use POST requests.");
 });
 
 // --- AUTH MIDDLEWARE ---
@@ -89,6 +89,7 @@ app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
     try {
         const { amount } = req.body;
         const uid = req.user.uid;
+        // FIX: Backticks added below
         const orderId = `ORDER_${uid}_${Date.now()}`;
         
         const userDoc = await db.collection('users').doc(uid).get();
@@ -97,7 +98,7 @@ app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
         const payload = {
             order_id: orderId, order_amount: amount, order_currency: "INR",
             customer_details: { customer_id: uid, customer_email: userDoc.data().email, customer_phone: "9999999999" },
-            order_meta: { return_url: `https://google.com` } // Dummy return URL
+            order_meta: { return_url: `https://google.com` } 
         };
 
         const cfRes = await axios.post(`${CASHFREE_URL}/orders`, payload, {
@@ -184,6 +185,7 @@ app.post('/api/rewards/daily', verifyToken, async (req, res) => {
         await db.runTransaction(async (t) => {
             const doc = await t.get(uRef);
             const last = doc.data().lastDailyReward?.toDate();
+            // 24 hours check
             if(last && (new Date() - last) < 86400000) throw new Error("Wait 24h");
             
             t.update(uRef, { wallet: (doc.data().wallet||0) + 10, lastDailyReward: admin.firestore.FieldValue.serverTimestamp() });
@@ -193,5 +195,58 @@ app.post('/api/rewards/daily', verifyToken, async (req, res) => {
     } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
-// Export for Vercel
+// 6. Withdraw
+app.post('/api/wallet/withdraw', verifyToken, async (req, res) => {
+    const { amount, upiId } = req.body;
+    const uid = req.user.uid;
+    const userRef = db.collection('users').doc(uid);
+    try {
+        await db.runTransaction(async (t) => {
+            const doc = await t.get(userRef);
+            if (doc.data().wallet < amount) throw new Error("Insufficient funds");
+            t.update(userRef, { wallet: doc.data().wallet - amount });
+            db.collection('transactions').add({ userId: uid, type: 'withdraw', amount: parseFloat(amount), upi: upiId, status: 'PENDING', timestamp: admin.firestore.FieldValue.serverTimestamp() });
+        });
+        res.json({ success: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// 7. Admin Distribute
+app.post('/api/admin/match/distribute', verifyToken, async (req, res) => {
+    const { matchId, gameUid, rank, kills } = req.body;
+    try {
+        const matchRef = db.collection('matches').doc(matchId);
+        const teamQuery = await matchRef.collection('teams').where('gameUids', 'array-contains', gameUid).limit(1).get();
+        if (teamQuery.empty) return res.status(404).json({ error: 'Player not found' });
+        
+        const teamDoc = teamQuery.docs[0];
+        const teamRef = teamDoc.ref;
+        const ownerUid = teamDoc.data().ownerUid;
+
+        await db.runTransaction(async (t) => {
+            const mDoc = await t.get(matchRef);
+            const tDoc = await t.get(teamRef);
+            if (tDoc.data().hasReceivedRewards) throw new Error("Already distributed");
+
+            const mData = mDoc.data();
+            const killPrize = kills * (mData.perKillRate || 0);
+            const rankPrize = (mData.rankPrizes && mData.rankPrizes[rank-1]) || 0;
+            const total = killPrize + rankPrize;
+            const xp = (kills * 10) + 100;
+
+            const uRef = db.collection('users').doc(ownerUid);
+            const uDoc = await t.get(uRef);
+            
+            t.update(uRef, { wallet: (uDoc.data().wallet || 0) + total, totalXP: (uDoc.data().totalXP || 0) + xp, matchesPlayed: admin.firestore.FieldValue.increment(1), totalKills: admin.firestore.FieldValue.increment(kills) });
+            t.update(teamRef, { hasReceivedRewards: true, resultRank: rank, resultKills: kills, prizeWon: total });
+            
+            if (total > 0) {
+                db.collection('transactions').add({ userId: ownerUid, type: 'prize_winnings', amount: total, matchId, status: 'SUCCESS', timestamp: admin.firestore.FieldValue.serverTimestamp() });
+            }
+        });
+        res.json({ success: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// VERCEL EXPORT (Bahut Zaroori)
 module.exports = app;
