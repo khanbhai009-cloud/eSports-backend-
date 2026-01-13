@@ -40,7 +40,7 @@ app.use(express.json({
     }
 }));
 
-// --- TEST ROUTE (GET Error hatane ke liye) ---
+// --- TEST ROUTE ---
 app.get('/api', (req, res) => {
     res.send("Backend is Running! Use POST requests.");
 });
@@ -61,7 +61,7 @@ const verifyToken = async (req, res, next) => {
     }
 };
 
-// --- ROUTES ---
+// --- ROUTES (Note: Sabke aage /api laga hai) ---
 
 // 1. Signup
 app.post('/api/auth/signup', verifyToken, async (req, res) => {
@@ -89,7 +89,6 @@ app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
     try {
         const { amount } = req.body;
         const uid = req.user.uid;
-        // FIX: Backticks added below
         const orderId = `ORDER_${uid}_${Date.now()}`;
         
         const userDoc = await db.collection('users').doc(uid).get();
@@ -248,5 +247,4 @@ app.post('/api/admin/match/distribute', verifyToken, async (req, res) => {
     } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
-// VERCEL EXPORT (Bahut Zaroori)
 module.exports = app;
